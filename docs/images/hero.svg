@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="430" viewBox="0 0 1440 430" role="img" aria-labelledby="title desc">
+<title id="title">Boost Lamp</title><desc id="desc">Boosty на вашем телевизоре. Lampa, свой сервер и привычный пульт.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101720"/><stop offset="1" stop-color="#22212b"/></linearGradient><linearGradient id="orange" x2="1" y2="1"><stop stop-color="#ffb16d"/><stop offset="1" stop-color="#f46c44"/></linearGradient></defs>
+<rect width="1440" height="430" rx="28" fill="url(#bg)"/>
+<circle cx="1240" cy="90" r="280" fill="#f48756" opacity=".045"/>
+<path d="M1040 0v430M1140 0v430M1240 0v430M1340 0v430M940 100h500M940 200h500M940 300h500" stroke="#ffffff" opacity=".045"/>
+<rect x="68" y="64" width="70" height="70" rx="20" fill="url(#orange)"/><text x="88" y="115" font-family="Arial,sans-serif" font-weight="700" font-size="50" fill="#1b1b24">B</text>
+<text x="158" y="108" font-family="Arial,sans-serif" font-size="22" letter-spacing="4" fill="#f7ae87">BOOSTY × LAMPA</text>
+<text x="65" y="224" font-family="Arial,sans-serif" font-weight="700" font-size="88" fill="#f9f8f6">Boost Lamp</text>
+<text x="70" y="279" font-family="Arial,sans-serif" font-size="29" fill="#aeb9c9">Ваши авторы. Привычный пульт. Свой сервер.</text>
+<rect x="70" y="326" width="167" height="40" rx="20" fill="#f48756"/><text x="93" y="352" font-family="Arial,sans-serif" font-size="17" font-weight="700" fill="#1a1d25">SELF-HOSTED</text>
+<text x="263" y="352" font-family="Arial,sans-serif" font-size="17" fill="#b7c3d3">Поток по запросу · MP4 · Продолжение просмотра</text>
+<rect x="1080" y="105" width="256" height="168" rx="16" fill="#111820" stroke="#516070" stroke-width="3"/>
+<rect x="1095" y="120" width="226" height="138" rx="8" fill="#27303a"/>
+<path d="M1195 158l48 31-48 31z" fill="url(#orange)"/><path d="M1208 275v34m-57 0h114" stroke="#8391a1" stroke-width="6" stroke-linecap="round"/>
+</svg>

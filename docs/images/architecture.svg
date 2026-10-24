@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="330" viewBox="0 0 1440 330" role="img" aria-labelledby="title desc">
+<title id="title">Как работает Boost Lamp</title><desc id="desc">Доступные видео Boosty проходят через личный сервер к Lampa и существующему плееру телевизора.</desc>
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0L6 3L0 6" fill="none" stroke="#f48756" stroke-width="1.5"/></marker></defs>
+<rect width="1440" height="330" rx="24" fill="#111820"/>
+<g font-family="Arial,sans-serif"><text x="42" y="48" fill="#9aaec1" font-size="16" letter-spacing="2">ВЫБРАЛИ ВИДЕО — СЕРВЕР НАЧАЛ ПЕРЕДАЧУ</text>
+<g fill="#202b36" stroke="#344250"><rect x="42" y="82" width="278" height="166" rx="16"/><rect x="401" y="82" width="278" height="166" rx="16"/><rect x="760" y="82" width="278" height="166" rx="16"/><rect x="1119" y="82" width="278" height="166" rx="16"/></g>
+<g fill="#f48756" font-size="18"><text x="64" y="118">01 / ИСТОЧНИК</text><text x="423" y="118">02 / ВАШ СЕРВЕР</text><text x="782" y="118">03 / ТЕЛЕВИЗОР</text><text x="1141" y="118">04 / ПРОСМОТР</text></g>
+<g fill="#f4f7fa" font-size="30" font-weight="700"><text x="64" y="164">Boosty</text><text x="423" y="164">Boost Lamp</text><text x="782" y="164">Lampa</text><text x="1141" y="164">Ваш плеер</text></g>
+<g fill="#b7c3d3" font-size="17"><text x="64" y="204">Доступные вам видео</text><text x="423" y="204">Аккаунт, поток, история</text><text x="782" y="204">Карточки и пульт</text><text x="1141" y="204">Звук и перемотка</text></g>
+<g stroke="#f48756" stroke-width="2" marker-end="url(#a)"><path d="M335 164h48"/><path d="M694 164h48"/><path d="M1053 164h48"/></g>
+<text x="42" y="292" fill="#8396a9" font-size="17">Без предварительного скачивания · Без перекодирования · Вход в аккаунт на компьютере</text></g>
+</svg>

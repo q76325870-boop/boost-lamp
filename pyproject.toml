@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--basetemp=.test-tmp"
+faulthandler_timeout = 20

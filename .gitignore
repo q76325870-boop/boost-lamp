@@ -1,0 +1,12 @@
+.venv/
+.venv-login/
+docs/review-brief.md
+__pycache__/
+.pytest_cache/
+.test-tmp/
+*.pyc
+.env
+state/
+private/
+dist/
+*.log

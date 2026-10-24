@@ -1,0 +1,32 @@
+name: boosty-lampa
+services:
+  boosty:
+    build: .
+    restart: unless-stopped
+    init: true
+    cpus: 1.0
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 96
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:rw,noexec,nosuid,size=16m]
+    ports:
+      - "${BOOSTY_LAN_IP:?Set server LAN IPv4}:19118:8080"
+      - "127.0.0.1:19117:8081"
+    environment:
+      BOOSTY_PUBLIC_URL: "${BOOSTY_PUBLIC_URL:?Set public origin}"
+      BOOSTY_ORIGINS: "${BOOSTY_ORIGINS:?Set actual Lampa origins}"
+      BOOSTY_NETWORKS: "${BOOSTY_NETWORKS:?Set trusted LAN CIDR},127.0.0.0/8"
+      BOOSTY_STATE_DIR: /state
+      BOOSTY_ADMIN_BIND: 0.0.0.0
+    volumes:
+      - boosty-state:/state
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  boosty-state:

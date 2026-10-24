@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Подключение Boosty</title>
+<style>body{font:17px/1.5 system-ui;background:#171c24;color:#eff1f5;max-width:760px;margin:4em auto;padding:0 1.5em}h1{font-size:2em}section{background:#242c38;padding:1.5em;border-radius:14px;margin:1em 0}input,button{font:inherit;padding:.65em;border-radius:8px;border:1px solid #566173}input{max-width:90%;background:#151a22;color:white}button{background:#ed8751;color:#181818;cursor:pointer}label{display:block;margin-bottom:.5em}p{color:#cbd2de}#result{white-space:pre-wrap}code{overflow-wrap:anywhere}button:focus-visible,input:focus-visible{outline:3px solid #ffbe91}</style>
+<h1>Boosty на телевизоре</h1>
+<p>Вход выполняется на компьютере. Телевизор получает доступ только к каталогу и воспроизведению.</p>
+<section><label for="key">Ключ администратора</label><input id="key" type="password" autocomplete="off" placeholder="Из закрытого файла администратора"><button id="check">Подключиться</button><p id="status" role="status">Ожидание подключения</p></section>
+<section><h2>1. Подключить аккаунт</h2><p>Предпочтительный способ — помощник <code>scripts/login.py</code>: он откроет официальный сайт Boosty. Пароль вводится только там.</p><p>Если агент подготовил файл сессии только для Boosty, выберите его ниже. Он передаётся вашему серверу и не включается в комплект переноса.</p><input id="session" type="file" accept="application/json,.json" aria-label="Файл сессии Boosty"><button id="import">Подключить аккаунт</button></section>
+<section><h2>2. Привязать телевизор</h2><p>Откройте раздел Boosty в Lampa и выберите «Привязать телевизор». Введите показанный код. Новая привязка заменит прежнюю.</p><input id="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" aria-label="Шестизначный код ТВ"><button id="approve">Подтвердить</button><p id="pairs"></p></section>
+<p id="result" role="alert"></p>
+<script>
+'use strict';
+const result=document.getElementById('result');
+async function call(path,body){const response=await fetch('/admin/'+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+document.getElementById('key').value,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error(data.code||'Ошибка сервера');return data;}
+async function status(){try{const data=await call('status');document.getElementById('status').textContent=data.connected?'Аккаунт подключён':'Аккаунт ещё не подключён';document.getElementById('pairs').textContent=data.pairings.length?'Коды, ожидающие подтверждения: '+data.pairings.map(p=>p.code).join(', '):'Нет ожидающих кодов';result.textContent='';}catch(e){result.textContent='Не удалось подключиться: '+e.message;}}
+document.getElementById('check').onclick=status;
+document.getElementById('import').onclick=async()=>{try{const file=document.getElementById('session').files[0];if(!file||file.size>65536)throw new Error('Выберите файл сессии Boosty размером до 64 КиБ');await call('session',JSON.parse(await file.text()));await status();result.textContent='Аккаунт подключён. Файл экспорта на компьютере можно удалить.';}catch(e){result.textContent='Подключение не выполнено: '+e.message;}};
+document.getElementById('approve').onclick=async()=>{try{await call('pairing/approve',{code:document.getElementById('code').value});await status();result.textContent='Код подтверждён. Дождитесь сообщения на телевизоре.';}catch(e){result.textContent='Привязка не выполнена: '+e.message;}};
+</script></html>

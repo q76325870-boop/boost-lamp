@@ -1,0 +1,12 @@
+.git
+.venv
+.venv-login
+.test-tmp
+.pytest_cache
+__pycache__
+tests
+state
+private
+.env
+dist
+*.log
