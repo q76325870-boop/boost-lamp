@@ -24,16 +24,16 @@ jobs:
       - run: node --test --test-concurrency=1 tests/plugin.test.cjs
       - run: docker compose --env-file .env.example config --quiet
       - name: Сборка и запуск изолированного контейнера
+        env:
+          BOOSTY_LAN_IP: 127.0.0.1
+          BOOSTY_PUBLIC_URL: http://127.0.0.1:19118
+          BOOSTY_ORIGINS: http://127.0.0.1:9118
+          BOOSTY_NETWORKS: 127.0.0.0/8
         run: |
-          docker build -t boost-lamp:ci .
-          docker run -d --name boost-lamp-ci --network none --cpus 0.5 --memory 512m --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --mount type=volume,source=boost-lamp-ci-state,target=/state -e BOOSTY_PUBLIC_URL=http://127.0.0.1:8080 boost-lamp:ci
-          for attempt in $(seq 1 15); do
-            if docker exec boost-lamp-ci python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"; then break; fi
-            sleep 1
-          done
-          docker exec boost-lamp-ci python -c "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2))['ok']"
+          docker build -t boosty-lampa-boosty:latest .
+          docker compose up -d --no-build --wait --wait-timeout 60
+          docker compose exec -T boosty python -c "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2))['ok']"
       - name: Очистка собственного тестового контейнера
         if: always()
         run: |
-          docker rm -f boost-lamp-ci || true
-          docker volume rm boost-lamp-ci-state || true
+          docker compose --env-file .env.example down -v

@@ -11,7 +11,7 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:rw,noexec,nosuid,size=16m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     ports:
       - "${BOOSTY_LAN_IP:?Set server LAN IPv4}:19118:8080"
       - "127.0.0.1:19117:8081"
