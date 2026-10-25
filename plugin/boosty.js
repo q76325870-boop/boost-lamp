@@ -246,9 +246,13 @@
             this.start = function () {
                 if (dead) return;
                 L.Controller.add('content', {
-                    toggle: function () { L.Controller.collectionSet(html); L.Controller.collectionFocus(last || false, html); },
+                    toggle: function () { L.Controller.collectionSet(html); L.Controller.collectionFocus(last || grid.find('.selector').first(), html); },
                     up: function () { if (root.Navigator.canmove('up')) root.Navigator.move('up'); else L.Controller.toggle('head'); },
-                    down: function () { root.Navigator.move('down'); },
+                    down: function () {
+                        if (!root.Navigator.canmove('down') && head.find('.focus').length && grid.find('.selector').length) {
+                            L.Controller.collectionFocus(grid.find('.selector').first(), html);
+                        } else root.Navigator.move('down');
+                    },
                     right: function () { root.Navigator.move('right'); },
                     left: function () { if (root.Navigator.canmove('left')) root.Navigator.move('left'); else L.Controller.toggle('menu'); },
                     back: function () { L.Activity.backward(); }

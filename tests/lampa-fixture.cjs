@@ -16,6 +16,8 @@ module.exports = function fixture({external = false, inline = false, storage = n
     attr(key, value) { this.attrs[key] = value; return this; }
     on(event, callback) { this.events[event] = callback; return this; }
     first() { return this; }
+    get length() { return 1; }
+    find(selector) { return all(this, n => n.classes.includes(selector.slice(1)))[0] || {length: 0, first() { return this; }}; }
     trigger(event) { this.events[event]?.call(this); return this; }
   }
   const menu = new Element();
@@ -47,7 +49,7 @@ module.exports = function fixture({external = false, inline = false, storage = n
       current = instance; instance.create(); instance.start(); return instance;
     }, backward() {}},
     Scroll: function () { const root = new Element(); this.render = () => root; this.append = x => root.append(x); this.minus = this.update = () => {}; this.destroy = () => root.remove(); },
-    Controller: {add(name, value) { controllers[name] = value; }, toggle(name) { controller = name; controllers[name]?.toggle(); }, collectionSet(value) { this.collection = value; }, collectionFocus() {}},
+    Controller: {add(name, value) { controllers[name] = value; }, toggle(name) { controller = name; controllers[name]?.toggle(); }, collectionSet(value) { this.collection = value; }, collectionFocus(value) { this.focused = value; }},
     Select: {show(value) { selected = value; }, hide() {}},
     Noty: {show(text) { notices.push(text); }},
     Timeline: {update(value) { updates.push({...value}); }},
@@ -64,6 +66,7 @@ module.exports = function fixture({external = false, inline = false, storage = n
   function all(root, predicate) { return (predicate(root) ? [root] : []).concat(root.children.flatMap(node => all(node, predicate))); }
   return {
     L, storage, xhrs, nodes, notices, updates,
+    down() { controllers.content.down(); },
     registered: () => !!component,
     open(action = 'posts') { return L.Activity.push({action, author: 'author', title: action}); },
     current: () => current, entry: () => entry,

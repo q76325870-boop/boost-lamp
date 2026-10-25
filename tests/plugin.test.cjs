@@ -92,6 +92,18 @@ test('late results from a paused page cannot steal focus', () => {
   assert.deepEqual(f.focus(),{controller:'other',collection:'other-page'});
 });
 
+test('remote down reaches a sparse card row from the header outside its horizontal bounds', () => {
+  const f = fixture(); f.open('home');
+  const first = f.cards()[0];
+  assert.equal(f.L.Controller.focused, first);
+  const home = f.button('Главная');
+  home.addClass('focus');
+  home.trigger('hover:focus');
+  f.L.Controller.focused = home;
+  f.down();
+  assert.equal(f.L.Controller.focused, first);
+});
+
 test('cached inline script registers using the last validated server origin', () => {
   const initial = fixture(); assert.equal(initial.registered(),true);
   const cached = fixture({inline:true,storage:initial.storage});
