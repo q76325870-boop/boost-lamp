@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sqlite3
+import socket
 import time
 import urllib.parse
 
@@ -187,3 +188,124 @@ async def test_vkuser_redirect_to_private_dns_is_rejected():
             await SafeHTTP(client, resolver=resolve).open("GET", "https://ok9-2.vkuser.net/video")
     assert caught.value.code == "UNSAFE_UPSTREAM"
     assert len(observed) == 1
+
+
+@pytest.mark.anyio
+async def test_dns_recovers_transient_failures_before_pinned_request():
+    calls = 0
+    observed = []
+
+    async def resolve(host):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise socket.gaierror(socket.EAI_NODATA if calls == 1 else socket.EAI_AGAIN, "DNS unavailable")
+        return ["93.184.216.34"]
+
+    def handler(request):
+        observed.append(request)
+        return httpx.Response(206, content=b"MP4")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        response = await SafeHTTP(client, resolve).open("GET", "https://ok9-2.vkuser.net/video?signature=private", {"Range": "bytes=0-2"})
+        assert response.status_code == 206
+        assert await response.aread() == b"MP4"
+        await response.aclose()
+    assert calls == 3 and len(observed) == 1
+    assert observed[0].url.host == "93.184.216.34"
+    assert observed[0].headers["Host"] == observed[0].extensions["sni_hostname"] == "ok9-2.vkuser.net"
+    assert observed[0].headers["Range"] == "bytes=0-2"
+
+
+@pytest.mark.anyio
+async def test_dns_failure_is_bounded_and_secret_safe(caplog):
+    calls = 0
+
+    async def resolve(host):
+        nonlocal calls
+        calls += 1
+        raise socket.gaierror(socket.EAI_NODATA, "private-signature-must-not-be-logged")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: pytest.fail("must not connect"))) as client:
+        with pytest.raises(Problem) as error:
+            await SafeHTTP(client, resolve).open("GET", "https://ok9-2.vkuser.net/video?signature=private")
+    assert (error.value.code, error.value.status) == ("UPSTREAM_UNAVAILABLE", 502)
+    assert calls == 3
+    assert "DNS" in caplog.text
+    assert "signature" not in caplog.text and "https://" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_dns_timeout_cancels_each_attempt_and_has_bounded_delays(monkeypatch):
+    actual_wait = asyncio.wait_for
+    timeouts, delays, canceled = [], [], []
+
+    async def quick_wait(awaitable, timeout):
+        timeouts.append(timeout)
+        return await actual_wait(awaitable, .001)
+
+    async def delay(seconds):
+        delays.append(seconds)
+
+    async def resolve(host):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            canceled.append(True)
+
+    monkeypatch.setattr("server.network.asyncio.wait_for", quick_wait)
+    monkeypatch.setattr("server.network.asyncio.sleep", delay)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: pytest.fail("must not connect"))) as client:
+        with pytest.raises(Problem) as error:
+            await actual_wait(SafeHTTP(client, resolve).open("GET", "https://ok9-2.vkuser.net/video"), .1)
+    assert error.value.code == "UPSTREAM_UNAVAILABLE"
+    assert timeouts == [2, 2, 2] and delays == [.2, .4]
+    assert len(canceled) == 3
+
+
+@pytest.mark.anyio
+async def test_dns_retry_does_not_bypass_private_answer_or_cancellation():
+    calls = 0
+
+    async def resolve(host):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise socket.gaierror(socket.EAI_AGAIN, "temporary")
+        return ["93.184.216.34", "127.0.0.1"]
+
+    async def canceled(host):
+        raise asyncio.CancelledError()
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: pytest.fail("must not connect"))) as client:
+        with pytest.raises(Problem) as error:
+            await SafeHTTP(client, resolve).open("GET", "https://ok9-2.vkuser.net/video")
+        assert error.value.code == "UNSAFE_UPSTREAM" and calls == 2
+        with pytest.raises(asyncio.CancelledError):
+            await SafeHTTP(client, canceled).open("GET", "https://ok9-2.vkuser.net/video")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("image", [False, True])
+async def test_dns_recovers_for_redirects_and_images(image):
+    calls, observed = {}, []
+    first = "img.boosty.to" if image else "vd1.okcdn.ru"
+
+    async def resolve(host):
+        calls[host] = calls.get(host, 0) + 1
+        if calls[host] == 1:
+            raise socket.gaierror(socket.EAI_AGAIN, "temporary")
+        return ["93.184.216.34"]
+
+    def handler(request):
+        observed.append(request.headers["host"])
+        if not image and len(observed) == 1:
+            return httpx.Response(302, headers={"location": "https://ok9-2.vkuser.net/video"})
+        return httpx.Response(200, content=b"data")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        response = await SafeHTTP(client, resolve).open("GET", "https://" + first + "/resource", image=image)
+        assert response.status_code == 200
+        await response.aclose()
+    assert observed == ([first] if image else [first, "ok9-2.vkuser.net"])
+    assert all(count == 2 for count in calls.values())

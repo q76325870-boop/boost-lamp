@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import logging
 import socket
 from urllib.parse import urljoin, urlsplit
 
@@ -26,7 +27,15 @@ class SafeHTTP:
             if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443)
                     or not any(host == d or host.endswith("." + d) for d in domains)):
                 raise Problem("UNSAFE_UPSTREAM", 502)
-            addresses = await self.resolver(host)
+            for attempt in range(3):
+                try:
+                    addresses = await asyncio.wait_for(self.resolver(host), timeout=2)
+                    break
+                except (socket.gaierror, TimeoutError):
+                    if attempt == 2:
+                        logging.warning("DNS resolution failed for allowed host: %s", host)
+                        raise Problem("UPSTREAM_UNAVAILABLE", 502) from None
+                    await asyncio.sleep(.2 * (attempt + 1))
             if not addresses or any(not ipaddress.ip_address(a).is_global for a in addresses):
                 raise Problem("UNSAFE_UPSTREAM", 502)
             address = sorted(addresses, key=lambda a: ":" in a)[0]

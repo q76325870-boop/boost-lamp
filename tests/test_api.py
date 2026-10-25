@@ -1,4 +1,5 @@
 import asyncio
+import socket
 import time
 from urllib.parse import urlsplit
 
@@ -292,3 +293,35 @@ async def test_switch_rejects_late_catalog_play_and_token_waiter(fixture):
     from server.errors import Problem
     with pytest.raises(Problem, match="DEVICE_REQUIRED"):
         await waiter
+
+
+@pytest.mark.anyio
+async def test_media_dns_recovers_range_and_exhaustion_returns_retryable_error(fixture):
+    svc, client, admin, controls, device = fixture
+    item = await playback(client)
+    path = urlsplit(item["url"]).path
+    calls = 0
+
+    async def resolve(host):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise socket.gaierror(socket.EAI_NODATA, "DNS unavailable")
+        return ["93.184.216.34"]
+
+    svc.safe.resolver = resolve
+    response = await client.get(path, headers={"Range": "bytes=100-199"})
+    assert response.status_code == 206 and response.content == bytes(range(100, 200))
+    assert calls == 3 and len(controls["media_calls"]) == 1
+
+    async def failed(host):
+        raise socket.gaierror(socket.EAI_AGAIN, "DNS unavailable")
+
+    svc.safe.resolver = failed
+    response = await client.get(path, headers={"Range": "bytes=200-299"})
+    assert response.status_code == 502
+    assert response.json() == {"code": "UPSTREAM_UNAVAILABLE", "retryable": True}
+    svc.safe.resolver = resolve
+    response = await client.get(path, headers={"Range": "bytes=200-299"})
+    assert response.status_code == 206 and response.content == bytes(range(200, 256)) + bytes(range(44))
+    assert svc.state.device_exists(device)
