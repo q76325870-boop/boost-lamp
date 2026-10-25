@@ -96,9 +96,7 @@ test('remote down reaches a sparse card row from the header outside its horizont
   const f = fixture(); f.open(); f.respondCatalog();
   const first = f.cards()[0];
   const home = f.button('Авторы');
-  home.addClass('focus');
-  home.trigger('hover:focus');
-  f.L.Controller.focused = home;
+  f.focusNode(home);
   f.down();
   assert.equal(f.L.Controller.focused, first);
 });
@@ -106,8 +104,9 @@ test('remote down reaches a sparse card row from the header outside its horizont
 test('home opens authors with distinct tabs, avatar cards and author cover', () => {
   const f = fixture(); f.open('home');
   assert.equal(f.cards().length,0);
-  for(const title of ['Авторы','Новые видео','Продолжить','Подключение']) assert.ok(f.button(title));
+  for(const title of ['Авторы','Новые видео','Продолжить']) assert.ok(f.button(title));
   assert.equal(f.button('Главная'),undefined);
+  assert.equal(f.button('Подключение'),undefined);
   f.nextRequest('GET','/authors').respond({items:[{author_id:'creator',title:'Creator',description:'Video essays',image_url:'http://server.test:19118/boosty/images/avatar',cover_url:'http://server.test:19118/boosty/images/cover'}],next_cursor:null});
   const card=f.cards()[0];
   assert.ok(card.classes.includes('boosty-author'));
@@ -148,4 +147,108 @@ test('forty catalog pages do not accumulate cards or completed cancel callbacks'
   f.respondCatalog('cursor-38');
   screen.destroy();
   assert.equal(f.xhrs.filter(x=>x.responded && x.aborted).length,0);
+});
+
+test('vertical levels override geometric shortcuts and remember card and tab', () => {
+  const f=fixture(); f.open(); f.respondCatalog();
+  const card=f.cards()[0], tab=f.button('Новые видео');
+  f.focusNode(tab); f.down();
+  assert.equal(f.L.Controller.focused,card);
+  f.neighbour('up',f.button('Продолжить')); // The geometric candidate is outside the grid.
+  f.up();
+  assert.equal(f.L.Controller.focused,tab);
+  f.up(); assert.equal(f.focus().controller,'head');
+  f.resume(); assert.equal(f.L.Controller.focused,tab);
+  f.down(); assert.equal(f.L.Controller.focused,card);
+});
+
+test('grid neighbours remain reachable; horizontal movement cannot jump levels', () => {
+  const f=fixture(); f.open();
+  f.nextRequest('GET','/posts').respond({items:[{author_id:'a',post_id:'p',videos:[{video_id:'1',title:'One'},{video_id:'2',title:'Two'}]}],next_cursor:null});
+  const [first,second]=f.cards();
+  f.focusNode(second); f.neighbour('up',first); f.up();
+  assert.equal(f.L.Controller.focused,first);
+  f.neighbour('right',f.button('Продолжить')); f.right();
+  assert.equal(f.L.Controller.focused,first);
+  f.neighbour('down',second); f.down();
+  assert.equal(f.L.Controller.focused,second);
+  f.neighbour('up',f.button('Авторы')); f.up(); f.down();
+  assert.equal(f.L.Controller.focused,second);
+});
+
+test('empty catalog keeps tabs focused and the upper panel can return', () => {
+  const f=fixture(); f.open('feed');
+  f.nextRequest('GET','/feed').respond({items:[],next_cursor:null});
+  assert.equal(f.L.Controller.focused,f.button('Новые видео'));
+  f.focusNode(f.button('Новые видео')); f.down();
+  assert.equal(f.L.Controller.focused,f.button('Новые видео'));
+  f.up(); assert.equal(f.focus().controller,'head');
+  f.resume(); assert.equal(f.L.Controller.focused,f.button('Новые видео'));
+});
+
+test('connection disappears immediately after pairing and returns for invalid binding', () => {
+  const f=fixture({connected:false}); f.open('pair');
+  assert.ok(f.button('Подключение'));
+  f.nextRequest('POST','/pairing').respond({code:'123456',id:'demo',secret:'demo'});
+  f.tick(); f.nextRequest('GET','/pairing/demo').respond({token:'demo-device'});
+  assert.equal(f.button('Подключение'),undefined);
+  assert.equal(f.L.Controller.focused,f.button('Открыть Boosty'));
+  f.button('Открыть Boosty').trigger('hover:enter');
+  assert.equal(f.button('Подключение'),undefined);
+  f.nextRequest('GET','/authors').respond({code:'DEVICE_REQUIRED'},401);
+  assert.ok(f.button('Подключение'));
+  assert.ok(f.button('Привязать телевизор'));
+});
+
+
+test('lost binding during playback offers focused pairing and keeps paused pages inactive', () => {
+  const f=fixture(); f.open(); f.respondCatalog(); f.selectQuality();
+  f.nextRequest('POST','/playbacks').respond({code:'DEVICE_REQUIRED'},401);
+  assert.ok(f.button('Подключение'));
+  assert.equal(f.cards().length,0);
+  assert.equal(f.L.Controller.focused,f.button('Привязать телевизор'));
+  f.button('Подключение').trigger('hover:enter');
+  assert.ok(f.nextRequest('POST','/pairing'));
+  const paused=fixture(); paused.open(); paused.respondCatalog(); paused.selectQuality(); paused.focusOther();
+  paused.nextRequest('POST','/playbacks').respond({code:'DEVICE_REQUIRED'},401);
+  assert.deepEqual(paused.focus(),{controller:'other',collection:'other-page'});
+});
+
+test('Back after pairing refreshes the saved page and recovery can reconnect again', () => {
+  const f=fixture({connected:false}); const original=f.open('home');
+  f.button('Подключение').trigger('hover:enter');
+  f.nextRequest('POST','/pairing').respond({code:'123456',id:'demo',secret:'demo'});
+  f.tick(); f.nextRequest('GET','/pairing/demo').respond({token:'demo-device'});
+  f.L.Activity.backward();
+  assert.equal(f.current(),original);
+  assert.equal(f.button('Подключение'),undefined);
+  assert.equal(f.button('Привязать телевизор'),undefined);
+  assert.ok(f.nextRequest('GET','/authors'));
+  f.nextRequest('GET','/authors').respond({code:'DEVICE_REQUIRED'},401);
+  assert.equal(f.L.Controller.focused,f.button('Привязать телевизор'));
+  f.button('Подключение').trigger('hover:enter');
+  assert.ok(f.nextRequest('POST','/pairing'));
+});
+
+test('remembered non-active tab works with both focus event orders', () => {
+  for(const focusEventFirst of [true,false]) {
+    const f=fixture({focusEventFirst}); f.open(); f.respondCatalog();
+    const tab=f.button('Новые видео'); f.focusNode(tab); f.down(); f.up();
+    assert.equal(f.L.Controller.focused,tab);
+  }
+});
+
+
+test('late unauthorized playback or catalog cannot erase a newer binding', () => {
+  for(const playback of [true,false]) {
+    const f=fixture(); f.open();
+    if(playback) { f.respondCatalog(); f.selectQuality(); }
+    const stale=playback?f.nextRequest('POST','/playbacks'):f.nextRequest('GET','/posts');
+    f.focusOther();
+    const key='boosty_device_v1_http://server.test:19118'; f.L.Storage.set(key,'new-device');
+    stale.respond({code:'DEVICE_REQUIRED'},401);
+    assert.equal(f.L.Storage.get(key,''),'new-device');
+    assert.deepEqual(f.focus(),{controller:'other',collection:'other-page'});
+    assert.equal(f.button('Подключение'),undefined);
+  }
 });

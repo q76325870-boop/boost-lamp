@@ -64,8 +64,11 @@
         var L = root.Lampa, $ = root.jQuery || root.$, active = null;
         var tokenKey = 'boosty_device_v1_' + base;
         function call(method, path, body, yes, no, extra) {
-            return request(root.XMLHttpRequest, base, L.Storage.get(tokenKey, ''), method, path, body, yes,
-                no || function (code) { L.Noty.show(message(code)); }, extra);
+            var token = L.Storage.get(tokenKey, '');
+            return request(root.XMLHttpRequest, base, token, method, path, body, yes, function (code) {
+                if (code === 'DEVICE_REQUIRED' && token !== L.Storage.get(tokenKey, '')) return;
+                if (no) no(code); else L.Noty.show(message(code));
+            }, extra);
         }
         function push(action, title, author, profile) { L.Activity.push({component: 'boosty', action: action, title: title || 'Boosty', author: author, profile: profile}); }
         function clock(seconds) {
@@ -73,7 +76,7 @@
             return Math.floor(seconds / 60) + ':' + ('0' + seconds % 60).slice(-2);
         }
         var qualityNames = {ultra_hd: '2160p', quad_hd: '1440p', full_hd: '1080p', high: '720p', medium: '480p', low: '360p', lowest: '240p', tiny: '144p'};
-        function launch(video, quality, onBack) {
+        function launch(video, quality, onBack, onError) {
             call('POST', '/playbacks', {author_id: video.author_id, post_id: video.post_id, video_id: video.video_id, quality: quality}, function (item) {
                 if (active) active.finish();
                 var current = progress(item.completed ? 0 : item.position_seconds, item.duration_seconds) || progress(0, 0);
@@ -130,12 +133,12 @@
                 var entry = {title: video.title, url: item.url, timeline: timeline};
                 L.Player.play(entry);
                 L.Player.playlist([entry]);
-            });
+            }, onError);
         }
-        function choose(video, back) {
+        function choose(video, back, failed) {
             var qualities = video.qualities || ['full_hd', 'high', 'medium'];
             L.Select.show({title: 'Качество видео', items: qualities.map(function (q) { return {title: qualityNames[q] || q, value: q}; }),
-                onSelect: function (item) { L.Select.hide(); launch(video, item.value, back); },
+                onSelect: function (item) { L.Select.hide(); launch(video, item.value, back, failed); },
                 onBack: function () { L.Select.hide(); back(); }});
         }
         function Component(object) {
@@ -143,7 +146,9 @@
             var self = this, dead = false, requests = [], poll = null, last = null, next = null, loading = false, count = 0;
             var pageCursor = null, previous = [];
             var html = $('<div class="boosty-page"></div>'), head = $('<div class="boosty-head"></div>');
-            var tabs = $('<div class="boosty-tabs"></div>');
+            var tabs = $('<div class="boosty-tabs"></div>'), top = $('<div class="boosty-top"></div>');
+            var lastTab = null, lastGrid = null, connection;
+            var binding = L.Storage.get(tokenKey, '');
             var scroll = new L.Scroll({mask: true, over: true}), grid = $('<div class="boosty-grid"></div>');
             var body = $('<div class="boosty-body"></div>');
             var note = $('<div class="boosty-note"></div>');
@@ -151,8 +156,25 @@
             function button(title, action, extra) {
                 var el = $('<div class="selector boosty-button"></div>').text(title);
                 if (extra) el.addClass(extra);
-                el.on('hover:enter', action).on('hover:focus', function () { last = el; scroll.update(el, true); });
+                el.on('hover:enter', action).on('hover:focus', function () {
+                    last = el;
+                    if (extra === 'boosty-tab' || extra === 'boosty-tab-active') lastTab = el;
+                    else if (extra !== 'boosty-settings') { lastGrid = el; scroll.update(el, true); }
+                });
                 return el;
+            }
+            function focus(area, target) { L.Controller.collectionSet(area); L.Controller.collectionFocus(target, area); }
+            function focusTabs() { focus(tabs, lastTab || tabs.find('.boosty-tab-active').first()); }
+            function move(area, direction) {
+                var current = area.find('.focus').first();
+                L.Controller.collectionSet(area);
+                L.Controller.collectionFocus(current, area);
+                if (!root.Navigator.canmove(direction)) return false;
+                root.Navigator.move(direction); return true;
+            }
+            function horizontal(direction) {
+                var area = grid.find('.focus').length ? grid : (tabs.find('.focus').length ? tabs : top);
+                if (!move(area, direction) && direction === 'left') L.Controller.toggle('menu');
             }
             function api(method, path, body, yes, no, extra) {
                 var pending = {cancel: null}; requests.push(pending);
@@ -164,10 +186,25 @@
                 pending.cancel = call(method, path, body, function (data) { settled(yes, data); }, function (code) { settled(no || error, code); }, extra);
             }
             function restore() { if (!dead && self.activity) self.activity.toggle(); }
+            function playbackError(code) {
+                if (dead) return;
+                if (code === 'DEVICE_REQUIRED') error(code);
+                else { L.Noty.show(message(code)); restore(); }
+            }
+            function unpaired() {
+                grid.empty(); last = lastGrid = null;
+                note.text('Один раз привяжите телевизор. Вход в Boosty выполняется на компьютере.');
+                grid.append(button('Привязать телевизор', function () { push('pair', 'Подключение Boosty'); }));
+            }
             function error(code) {
                 loading = false;
                 if (self.activity) self.activity.loader(false);
                 note.text(message(code));
+                if (code === 'DEVICE_REQUIRED') {
+                    L.Storage.set(tokenKey, ''); binding = '';
+                    grid.empty(); last = lastGrid = null;
+                    if (!top.find('.boosty-settings').length) top.append(connection);
+                }
                 grid.append(button(code === 'DEVICE_REQUIRED' ? 'Привязать телевизор' : 'Повторить', function () {
                     if (code === 'DEVICE_REQUIRED') push('pair', 'Подключение Boosty');
                     else if (object.action === 'pair') { grid.empty(); pair(); }
@@ -185,7 +222,7 @@
                 }
                 el.append(picture).append($('<div class="boosty-title"></div>').text(title));
                 if (subtitle) el.append($('<div class="boosty-subtitle"></div>').text(subtitle));
-                el.on('hover:enter', action).on('hover:focus', function () { last = el; scroll.update(el, true); });
+                el.on('hover:enter', action).on('hover:focus', function () { last = lastGrid = el; scroll.update(el, true); });
                 grid.append(el); count++;
             }
             function renderItems(data) {
@@ -193,11 +230,11 @@
                     if (object.action === 'authors') {
                         card(item.title, item.description !== item.title ? item.description : '', item.image_url, function () { push('posts', item.title, item.author_id, item); }, true);
                     } else if (object.action === 'continue') {
-                        card(item.title, 'Продолжить с ' + clock(item.position_seconds), item.image_url, function () { choose(item, restore); });
+                        card(item.title, 'Продолжить с ' + clock(item.position_seconds), item.image_url, function () { choose(item, restore, playbackError); });
                     } else {
                         item.videos.forEach(function (v) {
                             var entry = {author_id: item.author_id, post_id: item.post_id, video_id: v.video_id, title: v.title, qualities: v.qualities};
-                            card(v.title, v.duration_seconds ? clock(v.duration_seconds) : item.author_id, v.image_url, function () { choose(entry, restore); });
+                            card(v.title, v.duration_seconds ? clock(v.duration_seconds) : item.author_id, v.image_url, function () { choose(entry, restore, playbackError); });
                         });
                     }
                 });
@@ -210,7 +247,7 @@
             function load() {
                 if (loading) return;
                 loading = true;
-                grid.empty(); note.text('Загрузка…'); count = 0; next = null; last = null;
+                grid.empty(); note.text('Загрузка…'); count = 0; next = null; last = lastGrid = null;
                 self.activity.loader(true);
                 var path = '/' + object.action;
                 if (object.action === 'posts') path += '?author=' + encodeURIComponent(object.author);
@@ -225,7 +262,10 @@
                     restore();
                     function check() {
                         api('GET', '/pairing/' + data.id, null, function (result) {
-                            if (result.token) { L.Storage.set(tokenKey, result.token); note.text('Телевизор подключён'); grid.empty().append(button('Открыть Boosty', function () { push('home'); })); restore(); }
+                            if (result.token) {
+                                L.Storage.set(tokenKey, result.token); connection.detach(); last = lastGrid = null;
+                                note.text('Телевизор подключён'); grid.empty().append(button('Открыть Boosty', function () { push('home'); })); restore();
+                            }
                             else poll = setTimeout(check, 2000);
                         }, error, {'X-Pair-Secret': data.secret});
                     }
@@ -233,9 +273,9 @@
                 });
             }
             this.create = function () {
-                var top = $('<div class="boosty-top"></div>');
                 top.append($('<div class="boosty-heading"></div>').text(object.title || 'Boosty'));
-                top.append(button('Подключение', function () { push('pair', 'Подключение Boosty'); }, 'boosty-settings'));
+                connection = button('Подключение', function () { push('pair', 'Подключение Boosty'); }, 'boosty-settings');
+                if (!L.Storage.get(tokenKey, '')) top.append(connection);
                 [['authors', 'Авторы'], ['feed', 'Новые видео'], ['continue', 'Продолжить']].forEach(function (tab) {
                     var selected = object.action === tab[0] || (object.action === 'posts' && tab[0] === 'authors');
                     tabs.append(button(tab[1], function () { if (object.action !== tab[0]) push(tab[0], tab[1]); }, selected ? 'boosty-tab-active' : 'boosty-tab'));
@@ -253,28 +293,36 @@
                     cover.append(caption); body.prepend(cover);
                 }
                 if (!L.Storage.get(tokenKey, '') && object.action !== 'pair') {
-                    note.text('Один раз привяжите телевизор. Вход в Boosty выполняется на компьютере.');
-                    grid.append(button('Привязать телевизор', function () { push('pair', 'Подключение Boosty'); }));
+                    unpaired();
                 } else if (object.action === 'pair') pair();
                 else load();
                 return html;
             };
             this.start = function () {
                 if (dead) return;
+                var currentBinding = L.Storage.get(tokenKey, '');
+                if (binding !== currentBinding) {
+                    binding = currentBinding;
+                    requests.forEach(function (request) { if (request.cancel) request.cancel(); }); requests = []; loading = false;
+                    if (binding) connection.detach();
+                    else if (!top.find('.boosty-settings').length) top.append(connection);
+                    if (object.action !== 'pair') { if (binding) load(); else unpaired(); }
+                }
                 L.Controller.add('content', {
-                    toggle: function () { L.Controller.collectionSet(html); L.Controller.collectionFocus(last || grid.find('.selector').first(), html); },
+                    toggle: function () { focus(html, last || (grid.find('.selector').length ? grid.find('.selector').first() : lastTab || tabs.find('.boosty-tab-active').first())); },
                     up: function () {
-                        if (root.Navigator.canmove('up')) root.Navigator.move('up');
-                        else if (grid.find('.focus').length) L.Controller.collectionFocus(tabs.find('.selector').first(), html);
+                        if (grid.find('.focus').length) { if (!move(grid, 'up')) focusTabs(); }
+                        else if (tabs.find('.focus').length && top.find('.selector').length) focus(top, connection);
                         else L.Controller.toggle('head');
                     },
                     down: function () {
-                        if (!root.Navigator.canmove('down') && head.find('.focus').length && grid.find('.selector').length) {
-                            L.Controller.collectionFocus(grid.find('.selector').first(), html);
-                        } else root.Navigator.move('down');
+                        if (tabs.find('.focus').length) {
+                            if (grid.find('.selector').length) focus(grid, lastGrid || grid.find('.selector').first());
+                        } else if (top.find('.focus').length) focusTabs();
+                        else move(grid, 'down');
                     },
-                    right: function () { root.Navigator.move('right'); },
-                    left: function () { if (root.Navigator.canmove('left')) root.Navigator.move('left'); else L.Controller.toggle('menu'); },
+                    right: function () { horizontal('right'); },
+                    left: function () { horizontal('left'); },
                     back: function () { L.Activity.backward(); }
                 });
                 L.Controller.toggle('content');
