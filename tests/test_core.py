@@ -139,7 +139,51 @@ async def test_dns_rebinding_and_arbitrary_proxy_inputs_are_blocked():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: pytest.fail("must not connect")))
     safe = SafeHTTP(client, resolver=resolve)
-    for url in ("http://vd1.okcdn.ru/video", "https://attacker.example/video", "https://vd1.okcdn.ru/video"):
+    for url in ("http://vd1.okcdn.ru/video", "https://attacker.example/video", "https://vd1.okcdn.ru/video",
+                "http://ok9-2.vkuser.net/video", "https://ok9-2.vkuser.net/video",
+                "https://vkuser.net.attacker.example/video", "https://notvkuser.net/video",
+                "https://user@ok9-2.vkuser.net/video", "https://ok9-2.vkuser.net:8443/video"):
         with pytest.raises(Problem):
             await safe.open("GET", url)
     await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_vkuser_video_redirect_keeps_public_ip_pinning_and_range():
+    observed = []
+
+    async def resolve(host):
+        return ["93.184.216.34"]
+
+    def handler(request):
+        observed.append(request)
+        if len(observed) == 1:
+            return httpx.Response(302, headers={"location": "https://ok9-2.vkuser.net/video"})
+        return httpx.Response(206, content=b"MP4", headers={"Content-Range": "bytes 0-2/3"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        response = await SafeHTTP(client, resolver=resolve).open("GET", "https://vd1.okcdn.ru/video", {"Range": "bytes=0-2"})
+        assert response.status_code == 206
+        assert await response.aread() == b"MP4"
+        await response.aclose()
+    assert [r.headers["host"] for r in observed] == ["vd1.okcdn.ru", "ok9-2.vkuser.net"]
+    assert all(r.url.host == "93.184.216.34" and r.headers["range"] == "bytes=0-2" for r in observed)
+    assert observed[-1].extensions["sni_hostname"] == "ok9-2.vkuser.net"
+
+
+@pytest.mark.anyio
+async def test_vkuser_redirect_to_private_dns_is_rejected():
+    observed = []
+
+    async def resolve(host):
+        return ["127.0.0.1"] if host == "private.vkuser.net" else ["93.184.216.34"]
+
+    def handler(request):
+        observed.append(request)
+        return httpx.Response(302, headers={"location": "https://private.vkuser.net/video"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(Problem) as caught:
+            await SafeHTTP(client, resolver=resolve).open("GET", "https://ok9-2.vkuser.net/video")
+    assert caught.value.code == "UNSAFE_UPSTREAM"
+    assert len(observed) == 1

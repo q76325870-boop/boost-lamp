@@ -22,7 +22,7 @@ class SafeHTTP:
         for _ in range(4):
             parsed = urlsplit(url)
             host = parsed.hostname or ""
-            domains = ("okcdn.ru", "mycdn.me", "boosty.to") if image else ("okcdn.ru",)
+            domains = ("okcdn.ru", "mycdn.me", "boosty.to") if image else ("okcdn.ru", "vkuser.net")
             if (parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443)
                     or not any(host == d or host.endswith("." + d) for d in domains)):
                 raise Problem("UNSAFE_UPSTREAM", 502)
