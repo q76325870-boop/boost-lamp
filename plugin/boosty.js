@@ -67,7 +67,7 @@
             return request(root.XMLHttpRequest, base, L.Storage.get(tokenKey, ''), method, path, body, yes,
                 no || function (code) { L.Noty.show(message(code)); }, extra);
         }
-        function push(action, title, author) { L.Activity.push({component: 'boosty', action: action, title: title || 'Boosty', author: author}); }
+        function push(action, title, author, profile) { L.Activity.push({component: 'boosty', action: action, title: title || 'Boosty', author: author, profile: profile}); }
         function clock(seconds) {
             seconds = Math.max(0, Math.floor(Number(seconds) || 0));
             return Math.floor(seconds / 60) + ':' + ('0' + seconds % 60).slice(-2);
@@ -139,12 +139,15 @@
                 onBack: function () { L.Select.hide(); back(); }});
         }
         function Component(object) {
+            if (!object.action || object.action === 'home') { object.action = 'authors'; object.title = 'Авторы'; }
             var self = this, dead = false, requests = [], poll = null, last = null, next = null, loading = false, count = 0;
             var pageCursor = null, previous = [];
             var html = $('<div class="boosty-page"></div>'), head = $('<div class="boosty-head"></div>');
+            var tabs = $('<div class="boosty-tabs"></div>');
             var scroll = new L.Scroll({mask: true, over: true}), grid = $('<div class="boosty-grid"></div>');
+            var body = $('<div class="boosty-body"></div>');
             var note = $('<div class="boosty-note"></div>');
-            html.append(head).append(note).append(scroll.render()); scroll.append(grid); scroll.minus(head);
+            html.append(head).append(note).append(scroll.render()); scroll.append(body); body.append(grid); scroll.minus(head);
             function button(title, action, extra) {
                 var el = $('<div class="selector boosty-button"></div>').text(title);
                 if (extra) el.addClass(extra);
@@ -172,8 +175,9 @@
                 }));
                 restore();
             }
-            function card(title, subtitle, image, action) {
+            function card(title, subtitle, image, action, author) {
                 var el = $('<div class="selector boosty-card"></div>');
+                if (author) el.addClass('boosty-author');
                 var picture = $('<div class="boosty-picture"></div>').append($('<span></span>').text('B'));
                 if (image) {
                     var img = $('<img loading="lazy" alt="">').attr('src', image);
@@ -187,7 +191,7 @@
             function renderItems(data) {
                 data.items.forEach(function (item) {
                     if (object.action === 'authors') {
-                        card(item.title, 'Открыть видео автора', item.image_url, function () { push('posts', item.title, item.author_id); });
+                        card(item.title, item.description !== item.title ? item.description : '', item.image_url, function () { push('posts', item.title, item.author_id, item); }, true);
                     } else if (object.action === 'continue') {
                         card(item.title, 'Продолжить с ' + clock(item.position_seconds), item.image_url, function () { choose(item, restore); });
                     } else {
@@ -229,25 +233,41 @@
                 });
             }
             this.create = function () {
-                head.append($('<div class="boosty-heading"></div>').text(object.title || 'Boosty'));
-                head.append(button('Главная', function () { push('home'); }));
-                head.append(button('Подключение', function () { push('pair', 'Подключение Boosty'); }));
+                var top = $('<div class="boosty-top"></div>');
+                top.append($('<div class="boosty-heading"></div>').text(object.title || 'Boosty'));
+                top.append(button('Подключение', function () { push('pair', 'Подключение Boosty'); }, 'boosty-settings'));
+                [['authors', 'Авторы'], ['feed', 'Новые видео'], ['continue', 'Продолжить']].forEach(function (tab) {
+                    var selected = object.action === tab[0] || (object.action === 'posts' && tab[0] === 'authors');
+                    tabs.append(button(tab[1], function () { if (object.action !== tab[0]) push(tab[0], tab[1]); }, selected ? 'boosty-tab-active' : 'boosty-tab'));
+                });
+                head.append(top).append(tabs);
+                if (object.action === 'posts' && object.profile) {
+                    var profile = object.profile, cover = $('<div class="boosty-cover"></div>');
+                    if (profile.cover_url) {
+                        var coverImage = $('<img alt="">').attr('src', profile.cover_url);
+                        coverImage.on('error', function () { coverImage.remove(); }); cover.append(coverImage);
+                    }
+                    var caption = $('<div class="boosty-cover-caption"></div>');
+                    caption.append($('<div class="boosty-heading"></div>').text(profile.title));
+                    if (profile.description && profile.description !== profile.title) caption.append($('<div></div>').text(profile.description));
+                    cover.append(caption); body.prepend(cover);
+                }
                 if (!L.Storage.get(tokenKey, '') && object.action !== 'pair') {
                     note.text('Один раз привяжите телевизор. Вход в Boosty выполняется на компьютере.');
                     grid.append(button('Привязать телевизор', function () { push('pair', 'Подключение Boosty'); }));
                 } else if (object.action === 'pair') pair();
-                else if (!object.action || object.action === 'home') {
-                    [['continue', 'Продолжить'], ['feed', 'Новые видео'], ['authors', 'Авторы']].forEach(function (tab) {
-                        card(tab[1], '', null, function () { push(tab[0], tab[1]); });
-                    });
-                } else load();
+                else load();
                 return html;
             };
             this.start = function () {
                 if (dead) return;
                 L.Controller.add('content', {
                     toggle: function () { L.Controller.collectionSet(html); L.Controller.collectionFocus(last || grid.find('.selector').first(), html); },
-                    up: function () { if (root.Navigator.canmove('up')) root.Navigator.move('up'); else L.Controller.toggle('head'); },
+                    up: function () {
+                        if (root.Navigator.canmove('up')) root.Navigator.move('up');
+                        else if (grid.find('.focus').length) L.Controller.collectionFocus(tabs.find('.selector').first(), html);
+                        else L.Controller.toggle('head');
+                    },
                     down: function () {
                         if (!root.Navigator.canmove('down') && head.find('.focus').length && grid.find('.selector').length) {
                             L.Controller.collectionFocus(grid.find('.selector').first(), html);
@@ -264,7 +284,7 @@
             this.stop = function () {};
             this.destroy = function () { dead = true; clearTimeout(poll); requests.forEach(function (request) { if (request.cancel) request.cancel(); }); scroll.destroy(); html.remove(); };
         }
-        $('<style></style>').text('.boosty-page{height:100%;padding:1.2em 1.8em;box-sizing:border-box}.boosty-head{display:flex;align-items:center;gap:1em;margin-bottom:1em}.boosty-heading{font-size:1.8em;flex:1}.boosty-note{margin:.6em 0;color:#ccc;max-width:55em}.boosty-grid{display:flex;flex-wrap:wrap;gap:1.4em;padding:.6em .3em 4em}.boosty-card{width:calc(25% - 1.4em);min-width:12em;border-radius:.7em;padding:.5em;box-sizing:border-box;background:#242830}.boosty-picture{position:relative;background:#323842;height:8em;border-radius:.4em;overflow:hidden;display:flex;align-items:center;justify-content:center}.boosty-picture span{font-size:3em;color:#ed7447}.boosty-picture img{position:absolute;width:100%;height:100%;object-fit:cover}.boosty-title{margin-top:.6em;font-size:1.05em;line-height:1.3;max-height:3.9em;overflow:hidden}.boosty-subtitle{margin-top:.4em;color:#bbb;font-size:.85em}.boosty-button{padding:.7em 1em;background:#323842;border-radius:.45em}.boosty-page .selector.focus{outline:.2em solid #f48756;background:#45404a}.boosty-code{width:100%;font-size:4em;letter-spacing:.25em;color:#f48756}.boosty-more{width:100%;text-align:center}').appendTo('head');
+        $('<style></style>').text('.boosty-page{height:100%;padding:1.2em 1.8em;box-sizing:border-box}.boosty-head{margin-bottom:1em}.boosty-top{display:flex;align-items:center;gap:1em;margin-bottom:1em}.boosty-tabs{display:flex;gap:.6em;flex-wrap:wrap}.boosty-tabs .boosty-button{background:transparent;border-bottom:.15em solid transparent;border-radius:.2em}.boosty-tabs .boosty-tab-active{border-color:#f48756;color:#f9aa83}.boosty-settings{font-size:.85em}.boosty-card.boosty-author{background:transparent;aspect-ratio:1 / 1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:.7em}.boosty-author .boosty-picture{width:52%;height:auto;aspect-ratio:1 / 1;border-radius:50%;margin:0 auto .5em;flex-shrink:0;background:transparent}.boosty-author .boosty-title,.boosty-author .boosty-subtitle{text-shadow:0 1px 2px #000,0 0 5px #000}.boosty-author .boosty-subtitle{max-height:2.6em;overflow:hidden}.boosty-cover{position:relative;height:12em;margin:.6em .3em 1em;border-radius:.7em;overflow:hidden;background:#323842}.boosty-cover>img{width:100%;height:100%;object-fit:cover}.boosty-cover-caption{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:1.2em;background:linear-gradient(transparent,rgba(0,0,0,.85))}.boosty-cover-caption .boosty-heading{flex:none;margin-bottom:.2em}.boosty-heading{font-size:1.8em;flex:1}.boosty-note{margin:.6em 0;color:#ccc;max-width:55em}.boosty-grid{display:flex;flex-wrap:wrap;gap:1.4em;padding:.6em .3em 4em}.boosty-card{width:calc(25% - 1.4em);min-width:12em;border-radius:.7em;padding:.5em;box-sizing:border-box;background:#242830}.boosty-picture{position:relative;background:#323842;height:8em;border-radius:.4em;overflow:hidden;display:flex;align-items:center;justify-content:center}.boosty-picture span{font-size:3em;color:#ed7447}.boosty-picture img{position:absolute;width:100%;height:100%;object-fit:cover}.boosty-title{margin-top:.6em;font-size:1.05em;line-height:1.3;max-height:3.9em;overflow:hidden}.boosty-subtitle{margin-top:.4em;color:#bbb;font-size:.85em}.boosty-button{padding:.7em 1em;background:#323842;border-radius:.45em}.boosty-page .selector.focus{outline:.2em solid #f48756;background:#45404a}.boosty-page .boosty-author.focus{outline:none;background:transparent}.boosty-author.focus .boosty-picture{box-shadow:0 0 0 .2em #f48756}.boosty-author.focus .boosty-title{color:#ffb38c}.boosty-code{width:100%;font-size:4em;letter-spacing:.25em;color:#f48756}.boosty-more{width:100%;text-align:center}@media(max-width:800px){.boosty-card{width:calc(50% - 1.4em);min-width:0}.boosty-page{padding:1em}.boosty-heading{font-size:1.4em}.boosty-tabs{gap:.2em}}').appendTo('head');
         L.Component.add('boosty', Component);
         var menu = $('<li class="menu__item selector"><div class="menu__ico"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M5 3h8a5 5 0 0 1 3 9 5 5 0 0 1-3 9H5V3zm4 4v3h4a1.5 1.5 0 0 0 0-3H9zm0 7v3h4a1.5 1.5 0 0 0 0-3H9z"/></svg></div><div class="menu__text">Boosty</div></li>');
         menu.on('hover:enter', function () { push('home'); });

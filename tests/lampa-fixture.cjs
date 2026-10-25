@@ -6,9 +6,10 @@ module.exports = function fixture({external = false, inline = false, storage = n
   let clock = 20000, current, selected, entry, component, controller = '', timer = 0;
   const xhrs = [], nodes = [], controllers = {}, notices = [], updates = [];
   class Element {
-    constructor(html = '') { this.classes = (html.match(/class="([^"]*)"/)?.[1] || '').split(' '); this.children = []; this.events = {}; this.value = ''; this.attrs = {}; nodes.push(this); }
+    constructor(html = '') { this.tag = html.match(/^<(\w+)/)?.[1]; this.classes = (html.match(/class="([^"]*)"/)?.[1] || '').split(' '); this.children = []; this.events = {}; this.value = ''; this.attrs = {}; nodes.push(this); }
     text(value) { if (value === undefined) return this.value; this.value = value; return this; }
     append(child) { if (child instanceof Element) this.children.push(child); return this; }
+    prepend(child) { if (child instanceof Element) this.children.unshift(child); return this; }
     appendTo() { return this; }
     empty() { this.children = []; return this; }
     remove() { this.removed = true; return this; }
@@ -17,7 +18,7 @@ module.exports = function fixture({external = false, inline = false, storage = n
     on(event, callback) { this.events[event] = callback; return this; }
     first() { return this; }
     get length() { return 1; }
-    find(selector) { return all(this, n => n.classes.includes(selector.slice(1)))[0] || {length: 0, first() { return this; }}; }
+    find(selector) { return all(this, n => selector.startsWith('.') ? n.classes.includes(selector.slice(1)) : n.tag === selector)[0] || {length: 0, first() { return this; }}; }
     trigger(event) { this.events[event]?.call(this); return this; }
   }
   const menu = new Element();
@@ -67,6 +68,7 @@ module.exports = function fixture({external = false, inline = false, storage = n
   return {
     L, storage, xhrs, nodes, notices, updates,
     down() { controllers.content.down(); },
+    up() { controllers.content.up(); },
     registered: () => !!component,
     open(action = 'posts') { return L.Activity.push({action, author: 'author', title: action}); },
     current: () => current, entry: () => entry,

@@ -41,7 +41,8 @@ async def fixture(tmp_path):
                 controls["arrived"].set()
             await controls["release"].wait()
         if request.url.path == "/v1/user/subscriptions":
-            return httpx.Response(200, json={"data": [{"blog": {"blogUrl": "author", "title": "Author"}}], "total": 1})
+            blogs = controls.get("blogs", [{"blogUrl": "author", "title": "Author"}])
+            return httpx.Response(200, json={"data": [{"blog": b} for b in blogs], "total": len(blogs)})
         post = {"id": "post-1", "hasAccess": controls["access"], "title": "Film", "createdAt": 123,
                 "user": {"blogUrl": "author"}, "data": [{"id": "video-1", "type": "ok_video", "complete": True,
                 "title": "Film", "duration": 100, "playerUrls": [{"type": "full_hd", "url": "https://vd1.okcdn.ru/film?signature=private"}]}]}
@@ -117,6 +118,58 @@ async def test_access_checked_at_play_and_no_secrets_returned(fixture):
     controls["access"] = False
     response = await client.post("/boosty/v1/playbacks", json={"author_id": "author", "post_id": "post-1", "video_id": "video-1", "quality": "full_hd"})
     assert response.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_author_identity_and_images_use_owner_fields(fixture):
+    svc, client, admin, controls, device = fixture
+    controls["blogs"] = [
+        {"blogUrl": "creator", "title": "Video essays", "owner": {"name": "Creator name", "avatarUrl": "https://images.boosty.to/avatar.jpg"}, "coverUrl": "https://images.boosty.to/cover.jpg"},
+        {"blogUrl": "legacy", "title": "Legacy", "owner": None},
+        {"blogUrl": "slug-only"},
+    ]
+    items = (await client.get("/boosty/v1/authors")).json()["items"]
+    assert items[0]["title"] == "Creator name"
+    assert items[0]["description"] == "Video essays"
+    for field, source in [("image_url", "avatar.jpg"), ("cover_url", "cover.jpg")]:
+        identifier = items[0][field].rsplit("/", 1)[1]
+        assert svc.images[identifier][0] == "https://images.boosty.to/" + source
+    assert items[1]["title"] == "Legacy" and items[1]["image_url"] is None
+    assert items[2]["title"] == "slug-only"
+
+
+@pytest.mark.anyio
+async def test_multiple_devices_keep_tokens_streams_and_shared_history(fixture):
+    from server.state import State
+    svc, first, admin, controls, device = fixture
+    first_play = await playback(first)
+    pairing = (await first.post("/boosty/v1/pairing", json={})).json()
+    assert (await admin.post("/admin/pairing/approve", json={"code": pairing["code"]})).status_code == 200
+    second_token = (await first.get("/boosty/v1/pairing/" + pairing["id"], headers={"X-Pair-Secret": pairing["secret"]})).json()["token"]
+    assert (await first.get("/boosty/v1/authors")).status_code == 200
+    async with httpx.AsyncClient(transport=first._transport, base_url=first.base_url, headers={"Authorization": "Bearer " + second_token}) as second:
+        second_play = await playback(second)
+        for player, item in [(first, first_play), (second, second_play)]:
+            response = await player.get(item["url"], headers={"Range": "bytes=100-199"})
+            assert response.status_code == 206 and len(response.content) == 100
+        assert (await second.delete("/boosty/v1/playbacks/" + first_play["playback_id"])).status_code == 200
+        assert (await first.head(first_play["url"])).status_code == 200
+        await playback(second)
+        assert (await second.head(second_play["url"])).status_code == 404
+        assert (await first.head(first_play["url"])).status_code == 200
+        progress = "/boosty/v1/progress/" + first_play["key"]
+        assert (await first.put(progress, json={"position_seconds": 42, "duration_seconds": 100})).status_code == 200
+        assert (await second.get("/boosty/v1/continue")).json()["items"][0]["position_seconds"] == 42
+        reopened = State(svc.settings.state_dir)
+        try:
+            assert reopened.device(first.headers["authorization"][7:]) == device
+            assert reopened.device(second_token) != device
+        finally:
+            reopened.close()
+        replacement = {"accessToken": "owner-b-access", "refreshToken": "refresh-b", "clientId": "client", "expiresAt": int((time.time() + 86400) * 1000)}
+        assert (await admin.post("/admin/session", json=replacement)).status_code == 200
+        assert (await first.get("/boosty/v1/authors")).status_code == 401
+        assert (await second.get("/boosty/v1/authors")).status_code == 401
 
 
 @pytest.mark.anyio

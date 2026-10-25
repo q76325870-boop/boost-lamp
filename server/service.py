@@ -87,8 +87,6 @@ class Service:
         if not matches or matches[0]["token"]:
             raise Problem("PAIRING_EXPIRED", 404)
         _, token = self.state.new_device()
-        self.playbacks.clear()
-        self.opened.clear()
         matches[0]["token"] = token
 
     def claim(self, identifier, secret):
@@ -164,8 +162,11 @@ class Service:
                 for row in result.get("data", []):
                     blog = row.get("blog", {})
                     if blog.get("blogUrl"):
-                        items.append({"author_id": blog["blogUrl"], "title": str(blog.get("title") or blog["blogUrl"])[:500],
-                                      "image_url": self.image_url(blog.get("avatarUrl"))})
+                        owner = blog.get("owner") or {}
+                        items.append({"author_id": blog["blogUrl"], "title": str(owner.get("name") or blog.get("title") or blog["blogUrl"])[:500],
+                                      "description": str(blog.get("title") or "")[:500],
+                                      "image_url": self.image_url(owner.get("avatarUrl")),
+                                      "cover_url": self.image_url(blog.get("coverUrl"))})
                 consumed = int(offset or 0) + len(result.get("data", []))
                 next_offset = consumed if result.get("data") and consumed < result.get("total", 0) else None
             else:
@@ -213,7 +214,8 @@ class Service:
         self.check_device(current)
         device = current[0]
         now = time.time()
-        self.playbacks.clear()
+        self.playbacks = {key: value for key, value in self.playbacks.items()
+                          if value["device"] != device and now - value["used"] <= 3600 and now - value["created"] <= 43200}
         identifier = secrets.token_urlsafe(32)
         self.playbacks[identifier] = {"device": device, "source": source, "video": video, "quality": quality,
             "created": now, "used": now, "identity": None, "lock": asyncio.Lock(), "generation": current[1]}

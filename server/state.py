@@ -88,7 +88,6 @@ class State:
         token = secrets.token_urlsafe(32)
         device = secrets.token_hex(8)
         with self.db:
-            self.db.execute("DELETE FROM devices")
             self.db.execute("INSERT INTO devices VALUES (?,?)", (device, hashlib.sha256(token.encode()).hexdigest()))
         return device, token
 

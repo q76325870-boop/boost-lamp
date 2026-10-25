@@ -93,15 +93,37 @@ test('late results from a paused page cannot steal focus', () => {
 });
 
 test('remote down reaches a sparse card row from the header outside its horizontal bounds', () => {
-  const f = fixture(); f.open('home');
+  const f = fixture(); f.open(); f.respondCatalog();
   const first = f.cards()[0];
-  assert.equal(f.L.Controller.focused, first);
-  const home = f.button('Главная');
+  const home = f.button('Авторы');
   home.addClass('focus');
   home.trigger('hover:focus');
   f.L.Controller.focused = home;
   f.down();
   assert.equal(f.L.Controller.focused, first);
+});
+
+test('home opens authors with distinct tabs, avatar cards and author cover', () => {
+  const f = fixture(); f.open('home');
+  assert.equal(f.cards().length,0);
+  for(const title of ['Авторы','Новые видео','Продолжить','Подключение']) assert.ok(f.button(title));
+  assert.equal(f.button('Главная'),undefined);
+  f.nextRequest('GET','/authors').respond({items:[{author_id:'creator',title:'Creator',description:'Video essays',image_url:'http://server.test:19118/boosty/images/avatar',cover_url:'http://server.test:19118/boosty/images/cover'}],next_cursor:null});
+  const card=f.cards()[0];
+  assert.ok(card.classes.includes('boosty-author'));
+  assert.equal(card.find('img').attrs.src,'http://server.test:19118/boosty/images/avatar');
+  card.trigger('hover:enter');
+  assert.match(f.nextRequest('GET','/posts').url,/author=creator/);
+  assert.ok(f.current().render().find('.boosty-cover').length);
+  assert.equal(f.current().render().find('.boosty-cover').find('img').attrs.src,'http://server.test:19118/boosty/images/cover');
+});
+
+test('remote up from cards reaches section tabs when geometry has no neighbour', () => {
+  const f=fixture(); f.open(); f.respondCatalog();
+  f.cards()[0].addClass('focus').trigger('hover:focus');
+  f.up();
+  assert.equal(f.L.Controller.focused,f.button('Авторы'));
+  assert.equal(f.focus().controller,'content');
 });
 
 test('cached inline script registers using the last validated server origin', () => {

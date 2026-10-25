@@ -6,7 +6,7 @@
 <p>Вход выполняется на компьютере. Телевизор получает доступ только к каталогу и воспроизведению.</p>
 <section><label for="key">Ключ администратора</label><input id="key" type="password" autocomplete="off" placeholder="Из закрытого файла администратора"><button id="check">Подключиться</button><p id="status" role="status">Ожидание подключения</p></section>
 <section><h2>1. Подключить аккаунт</h2><p>Предпочтительный способ — помощник <code>scripts/login.py</code>: он откроет официальный сайт Boosty. Пароль вводится только там.</p><p>Если агент подготовил файл сессии только для Boosty, выберите его ниже. Он передаётся вашему серверу и не включается в комплект переноса.</p><input id="session" type="file" accept="application/json,.json" aria-label="Файл сессии Boosty"><button id="import">Подключить аккаунт</button></section>
-<section><h2>2. Привязать телевизор</h2><p>Откройте раздел Boosty в Lampa и выберите «Привязать телевизор». Введите показанный код. Новая привязка заменит прежнюю.</p><input id="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" aria-label="Шестизначный код ТВ"><button id="approve">Подтвердить</button><p id="pairs"></p></section>
+<section><h2>2. Привязать телевизор</h2><p>Откройте раздел Boosty в Lampa и выберите «Привязать телевизор». Введите показанный код. Новая привязка добавляет устройство. Ранее подключённые устройства сохраняют доступ.</p><input id="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" aria-label="Шестизначный код ТВ"><button id="approve">Подтвердить</button><p id="pairs"></p></section>
 <p id="result" role="alert"></p>
 <script>
 'use strict';
