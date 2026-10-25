@@ -252,3 +252,63 @@ test('late unauthorized playback or catalog cannot erase a newer binding', () =>
     assert.equal(f.button('Подключение'),undefined);
   }
 });
+
+
+test('long press selects an Android player for one launch and preserves resume', () => {
+  const f=fixture(); f.open(); f.respondCatalog();
+  f.L.Storage.set('player','inner');
+  f.cards()[0].trigger('hover:long');
+  assert.equal(f.selection().title,'Плеер для этого видео');
+  assert.deepEqual(Array.from(f.selection().items,x=>x.value),['inner','android']);
+  assert.equal(f.nextRequest('POST','/playbacks'),undefined);
+  f.select('android'); assert.equal(f.selection().title,'Качество видео');
+  f.select('full_hd'); f.respondPlayback(930);
+  assert.equal(f.playedPlayers[0],'android');
+  assert.equal(f.entry().timeline.time,930); assert.equal(f.entry().timeline.percent,93);
+  assert.deepEqual(f.runasCalls,['android','']);
+  assert.equal(f.L.Storage.get('player'),'inner');
+  f.selectQuality(); f.respondPlayback();
+  assert.equal(f.playedPlayers[1],'inner');
+});
+
+test('explicit inner player overrides external default without changing it', () => {
+  const f=fixture({external:true}); f.open(); f.respondCatalog();
+  f.L.Storage.set('player','android'); f.cards()[0].trigger('hover:long');
+  f.select('inner'); f.select('full_hd'); f.respondPlayback(930);
+  assert.equal(f.playedPlayers[0],'inner');
+  assert.equal(f.entry().timeline.time,930); assert.ok(f.entry().timeline.percent<90);
+  f.selectQuality(); f.respondPlayback(); assert.equal(f.playedPlayers[1],'android');
+  assert.equal(f.L.Storage.get('player'),'android');
+});
+
+test('player choice is available in Continue and absent from author cards', () => {
+  const f=fixture(); f.open('continue');
+  f.nextRequest('GET','/continue').respond({items:[{title:'Film',author_id:'a',post_id:'p',video_id:'v',qualities:['high'],position_seconds:42}],next_cursor:null});
+  f.cards()[0].trigger('hover:long'); assert.equal(f.selection().title,'Плеер для этого видео');
+  f.select('android'); assert.deepEqual(Array.from(f.selection().items,x=>x.value),['high']);
+  f.select('high'); assert.equal(f.nextRequest('POST','/playbacks').body.quality,'high');
+  const authors=fixture(); authors.open('authors');
+  authors.nextRequest('GET','/authors').respond({items:[{author_id:'a',title:'Author'}],next_cursor:null});
+  authors.cards()[0].trigger('hover:long'); assert.equal(authors.selection(),undefined);
+});
+
+test('canceling either selector restores the card without creating playback', () => {
+  const f=fixture(); f.open(); f.respondCatalog(); const card=f.cards()[0];
+  f.focusNode(card);
+  card.trigger('hover:long'); f.selection().onBack(); assert.equal(f.L.Controller.focused,card);
+  card.trigger('hover:long'); f.select('android'); f.selection().onBack();
+  assert.equal(f.L.Controller.focused,card); assert.equal(f.nextRequest('POST','/playbacks'),undefined);
+});
+
+test('browser menu does not advertise Android player and a failed launch resets override', () => {
+  const browser=fixture({android:false}); browser.open(); browser.respondCatalog(); browser.cards()[0].trigger('hover:long');
+  assert.deepEqual(Array.from(browser.selection().items,x=>x.value),['inner']);
+  const f=fixture(); f.open(); f.respondCatalog(); f.cards()[0].trigger('hover:long'); f.select('android'); f.select('full_hd');
+  f.L.Player.play=()=>{throw new Error('native launch failed');};
+  f.respondPlayback();
+  assert.deepEqual(f.runasCalls,['android','']);
+  assert.equal(f.L.Player.listener.count()+f.L.PlayerVideo.listener.count(),0);
+  assert.ok(f.nextRequest('DELETE','/playbacks/'));
+  assert.equal(f.nextRequest('PUT','/progress/'),undefined);
+  assert.match(f.notices.at(-1),/плеер/);
+});

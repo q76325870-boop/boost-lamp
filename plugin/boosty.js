@@ -17,7 +17,8 @@
         ACCESS_DENIED: 'У аккаунта нет доступа к этому видео.', SERVER_UNAVAILABLE: 'Сервер недоступен. Проверьте, включён ли он.',
         UPSTREAM_UNAVAILABLE: 'Boosty временно недоступен. Попробуйте ещё раз.', RATE_LIMITED: 'Boosty просит подождать. Повторите позже.',
         UNSUPPORTED_MEDIA: 'Нет готового MP4-видео для этого качества.', PLAYBACK_EXPIRED: 'Ссылка истекла. Откройте видео заново.',
-        MEDIA_CHANGED: 'Источник обновился. Откройте видео заново с сохранённой позиции.', PAIRING_EXPIRED: 'Код истёк. Получите новый код.'
+        MEDIA_CHANGED: 'Источник обновился. Откройте видео заново с сохранённой позиции.', PAIRING_EXPIRED: 'Код истёк. Получите новый код.',
+        PLAYER_UNAVAILABLE: 'Не удалось открыть выбранный плеер.'
     };
     function message(code) { return messages[code] || 'Произошла ошибка. Повторите действие.'; }
     function request(XHR, base, token, method, path, body, success, failure, extra) {
@@ -76,7 +77,7 @@
             return Math.floor(seconds / 60) + ':' + ('0' + seconds % 60).slice(-2);
         }
         var qualityNames = {ultra_hd: '2160p', quad_hd: '1440p', full_hd: '1080p', high: '720p', medium: '480p', low: '360p', lowest: '240p', tiny: '144p'};
-        function launch(video, quality, onBack, onError) {
+        function launch(video, quality, onBack, onError, player) {
             call('POST', '/playbacks', {author_id: video.author_id, post_id: video.post_id, video_id: video.video_id, quality: quality}, function (item) {
                 if (active) active.finish();
                 var current = progress(item.completed ? 0 : item.position_seconds, item.duration_seconds) || progress(0, 0);
@@ -100,9 +101,9 @@
                     queued = {position_seconds: current.position_seconds, duration_seconds: current.duration_seconds, completed: current.completed};
                     drain();
                 }
-                function finish() {
+                function finish(savePosition) {
                     if (finished) return;
-                    finished = true; save(true);
+                    finished = true; if (savePosition !== false) save(true);
                     L.Player.listener.remove('start', started);
                     L.Player.listener.remove('destroy', destroyed);
                     L.PlayerVideo.listener.remove('timeupdate', updated);
@@ -131,14 +132,24 @@
                 L.PlayerVideo.listener.follow('ended', ended);
                 active = {finish: finish};
                 var entry = {title: video.title, url: item.url, timeline: timeline};
-                L.Player.play(entry);
+                if (player) L.Player.runas(player);
+                try { L.Player.play(entry); }
+                catch (error) { finish(false); if (onError) onError('PLAYER_UNAVAILABLE'); else L.Noty.show(message('PLAYER_UNAVAILABLE')); return; }
+                finally { if (player) L.Player.runas(''); }
                 L.Player.playlist([entry]);
             }, onError);
         }
-        function choose(video, back, failed) {
+        function choose(video, back, failed, player) {
             var qualities = video.qualities || ['full_hd', 'high', 'medium'];
             L.Select.show({title: 'Качество видео', items: qualities.map(function (q) { return {title: qualityNames[q] || q, value: q}; }),
-                onSelect: function (item) { L.Select.hide(); launch(video, item.value, back, failed); },
+                onSelect: function (item) { L.Select.hide(); launch(video, item.value, back, failed, player); },
+                onBack: function () { L.Select.hide(); back(); }});
+        }
+        function choosePlayer(video, back, failed) {
+            var players = [{title: 'Встроенный плеер Lampa', value: 'inner'}];
+            if (L.Platform && L.Platform.is('android')) players.push({title: 'Внешний плеер (ViMu и другие)', value: 'android'});
+            L.Select.show({title: 'Плеер для этого видео', items: players,
+                onSelect: function (item) { L.Select.hide(); choose(video, back, failed, item.value); },
                 onBack: function () { L.Select.hide(); back(); }});
         }
         function Component(object) {
@@ -212,7 +223,7 @@
                 }));
                 restore();
             }
-            function card(title, subtitle, image, action, author) {
+            function card(title, subtitle, image, action, author, longAction) {
                 var el = $('<div class="selector boosty-card"></div>');
                 if (author) el.addClass('boosty-author');
                 var picture = $('<div class="boosty-picture"></div>').append($('<span></span>').text('B'));
@@ -223,6 +234,7 @@
                 el.append(picture).append($('<div class="boosty-title"></div>').text(title));
                 if (subtitle) el.append($('<div class="boosty-subtitle"></div>').text(subtitle));
                 el.on('hover:enter', action).on('hover:focus', function () { last = lastGrid = el; scroll.update(el, true); });
+                if (longAction) el.on('hover:long', longAction);
                 grid.append(el); count++;
             }
             function renderItems(data) {
@@ -230,11 +242,13 @@
                     if (object.action === 'authors') {
                         card(item.title, item.description !== item.title ? item.description : '', item.image_url, function () { push('posts', item.title, item.author_id, item); }, true);
                     } else if (object.action === 'continue') {
-                        card(item.title, 'Продолжить с ' + clock(item.position_seconds), item.image_url, function () { choose(item, restore, playbackError); });
+                        card(item.title, 'Продолжить с ' + clock(item.position_seconds), item.image_url, function () { choose(item, restore, playbackError); }, false,
+                            function () { choosePlayer(item, restore, playbackError); });
                     } else {
                         item.videos.forEach(function (v) {
                             var entry = {author_id: item.author_id, post_id: item.post_id, video_id: v.video_id, title: v.title, qualities: v.qualities};
-                            card(v.title, v.duration_seconds ? clock(v.duration_seconds) : item.author_id, v.image_url, function () { choose(entry, restore, playbackError); });
+                            card(v.title, v.duration_seconds ? clock(v.duration_seconds) : item.author_id, v.image_url, function () { choose(entry, restore, playbackError); }, false,
+                                function () { choosePlayer(entry, restore, playbackError); });
                         });
                     }
                 });

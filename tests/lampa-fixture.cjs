@@ -2,9 +2,9 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../plugin/boosty.js'), 'utf8');
 
-module.exports = function fixture({external = false, inline = false, storage = new Map(), connected = true, focusEventFirst = true} = {}) {
-  let clock = 20000, current, selected, entry, component, controller = '', timer = 0;
-  const xhrs = [], nodes = [], controllers = {}, notices = [], updates = [], timers = new Map(), neighbours = {}, history = [];
+module.exports = function fixture({external = false, inline = false, storage = new Map(), connected = true, focusEventFirst = true, android = true} = {}) {
+  let clock = 20000, current, selected, entry, component, controller = '', timer = 0, forcedPlayer = "";
+  const xhrs = [], nodes = [], controllers = {}, notices = [], updates = [], timers = new Map(), neighbours = {}, history = [], playedPlayers = [], runasCalls = [];
   class Element {
     constructor(html = '') { this.tag = html.match(/^<(\w+)/)?.[1]; this.classes = (html.match(/class="([^"]*)"/)?.[1] || '').split(' '); this.children = []; this.events = {}; this.value = ''; this.attrs = {}; nodes.push(this); }
     text(value) { if (value === undefined) return this.value; this.value = value; return this; }
@@ -42,6 +42,7 @@ module.exports = function fixture({external = false, inline = false, storage = n
     abort() { this.aborted = true; }
   }
   const L = {
+    Platform: {is(name) { return android && name === 'android'; }},
     Storage: {get(key, fallback) { return storage.get(key) ?? (key.startsWith('boosty_device_') && connected ? 'test-device' : fallback); }, set(key, value) { storage.set(key, value); }, field() { return 'continue'; }},
     Component: {add(name, ctor) { component = ctor; }},
     Activity: {push(object) {
@@ -55,7 +56,7 @@ module.exports = function fixture({external = false, inline = false, storage = n
     Select: {show(value) { selected = value; }, hide() {}},
     Noty: {show(text) { notices.push(text); }},
     Timeline: {update(value) { updates.push({...value}); }},
-    Player: {listener: listener(), play(value) { entry = value; if (!external) this.listener.emit('start', value); }, playlist() {}, close() { this.listener.emit('destroy', {}); }},
+    Player: {listener: listener(), runas(value) { forcedPlayer = value; runasCalls.push(value); }, play(value) { entry = value; const player=forcedPlayer || (external ? 'android' : 'inner'); playedPlayers.push(player); if (player === 'inner') this.listener.emit('start', value); }, playlist() {}, close() { this.listener.emit('destroy', {}); }},
     PlayerVideo: {listener: listener()}
   };
   const script = {src: inline ? '' : 'http://server.test:19118/boosty.js'};
@@ -67,7 +68,9 @@ module.exports = function fixture({external = false, inline = false, storage = n
   vm.runInNewContext(source, context);
   function all(root, predicate) { if (!root || root.removed) return []; return (predicate(root) ? [root] : []).concat(root.children.flatMap(node => all(node, predicate))); }
   return {
-    L, storage, xhrs, nodes, notices, updates,
+    L, storage, xhrs, nodes, notices, updates, playedPlayers, runasCalls,
+    selection: () => selected,
+    select(value) { selected.onSelect({value}); },
     down() { controllers.content.down(); },
     right() { controllers.content.right(); }, left() { controllers.content.left(); },
     neighbour(direction, node) { neighbours[direction] = node; },
@@ -84,7 +87,9 @@ module.exports = function fixture({external = false, inline = false, storage = n
     button(text, instance = current) { return all(instance.render(), n => n.value === text)[0]; },
     selectQuality() { this.cards()[0].trigger('hover:enter'); selected.onSelect({value: 'full_hd'}); },
     launch(position = 0, duration = 1000) {
-      this.selectQuality();
+      this.selectQuality(); this.respondPlayback(position,duration);
+    },
+    respondPlayback(position = 0, duration = 1000) {
       this.nextRequest('POST', '/playbacks').respond({playback_id: 'play', url: 'http://server.test:19118/boosty/media/play/video.mp4', key: 'video-key', title: 'Film', position_seconds: position, duration_seconds: duration, completed: false});
     },
     update(position, duration = 1000) { clock += 16000; L.PlayerVideo.listener.emit('timeupdate', {current: position, duration}); },
